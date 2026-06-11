@@ -1,0 +1,57 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply font-sans text-gray-900 antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
+  .btn-secondary {
+    @apply w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
+  }
+
+  .btn-ghost {
+    @apply rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900;
+  }
+
+  .input-field {
+    @apply w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500;
+  }
+
+  .section-label {
+    @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500;
+  }
+
+  .resume-canvas {
+    @apply bg-white p-6 shadow-sm ring-1 ring-gray-200;
+  }
+
+  .resume-section-title {
+    @apply mb-2 border-b border-gray-300 pb-1 text-xs font-bold uppercase tracking-widest text-gray-700;
+  }
+}
+
+@media print {
+  body * {
+    visibility: hidden;
+  }
+
+  .print-resume,
+  .print-resume * {
+    visibility: visible;
+  }
+
+  .print-resume {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+  }
+}
