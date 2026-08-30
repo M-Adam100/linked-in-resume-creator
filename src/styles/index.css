@@ -3,55 +3,98 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    @apply antialiased;
+  }
+
   body {
-    @apply font-sans text-gray-900 antialiased;
+    @apply bg-zinc-50 font-sans text-[13px] text-zinc-900;
+  }
+
+  /* Focus rings are shown only for keyboard users. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-indigo-500 ring-offset-1 ring-offset-white;
   }
 }
 
 @layer components {
+  .btn {
+    @apply inline-flex items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-[13px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50;
+  }
+
   .btn-primary {
-    @apply w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50;
+    @apply btn bg-indigo-600 text-white hover:bg-indigo-700 active:bg-indigo-800;
   }
 
   .btn-secondary {
-    @apply w-full rounded-lg border border-gray-300 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2;
+    @apply btn border border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400 hover:bg-zinc-50;
   }
 
   .btn-ghost {
-    @apply rounded-lg px-3 py-1.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-100 hover:text-gray-900;
+    @apply btn text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900;
+  }
+
+  .btn-danger {
+    @apply btn text-red-600 hover:bg-red-50;
+  }
+
+  .btn-sm {
+    @apply px-2 py-1 text-xs;
   }
 
   .input-field {
-    @apply w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500;
+    @apply w-full rounded-lg border border-zinc-300 bg-white px-2.5 py-1.5 text-[13px] text-zinc-900 placeholder:text-zinc-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500;
   }
 
-  .section-label {
-    @apply mb-1 block text-xs font-semibold uppercase tracking-wide text-gray-500;
+  .field-label {
+    @apply mb-1 block text-[11px] font-semibold uppercase tracking-wide text-zinc-500;
   }
 
-  .resume-canvas {
-    @apply bg-white p-6 shadow-sm ring-1 ring-gray-200;
+  .card {
+    @apply rounded-xl border border-zinc-200 bg-white;
   }
 
-  .resume-section-title {
-    @apply mb-2 border-b border-gray-300 pb-1 text-xs font-bold uppercase tracking-widest text-gray-700;
+  .panel-title {
+    @apply text-[11px] font-semibold uppercase tracking-wider text-zinc-500;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full border border-zinc-200 bg-zinc-100 px-2 py-0.5 text-xs text-zinc-700;
+  }
+
+  .link {
+    @apply text-indigo-600 underline-offset-2 hover:underline;
   }
 }
 
-@media print {
-  body * {
-    visibility: hidden;
-  }
+/* The preview renders markup produced by resumeRenderer, whose styles are
+   injected alongside it, so Tailwind's preflight must not reset it away. */
+.resume-preview-surface .rf-root ul {
+  list-style: disc;
+}
 
-  .print-resume,
-  .print-resume * {
-    visibility: visible;
-  }
+.resume-preview-surface .rf-root ol {
+  list-style: decimal;
+}
 
-  .print-resume {
-    position: absolute;
-    left: 0;
-    top: 0;
-    width: 100%;
-  }
+.resume-preview-surface .rf-root h1,
+.resume-preview-surface .rf-root h2 {
+  font-weight: inherit;
+}
+
+.scroll-slim {
+  scrollbar-width: thin;
+}
+
+.scroll-slim::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+.scroll-slim::-webkit-scrollbar-thumb {
+  @apply rounded-full border-[3px] border-solid border-transparent bg-zinc-300 bg-clip-padding;
+}
+
+.scroll-slim::-webkit-scrollbar-thumb:hover {
+  @apply bg-zinc-400;
 }

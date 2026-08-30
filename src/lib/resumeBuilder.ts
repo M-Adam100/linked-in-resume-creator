@@ -1,3 +1,4 @@
+import { generateId } from './ids';
 import type {
   LinkedInExperience,
   LinkedInProfile,
@@ -23,7 +24,7 @@ const FILLER_WORDS = new Set([
   'numerous',
 ]);
 
-const ACTION_VERBS = [
+export const ACTION_VERBS = [
   'Led',
   'Managed',
   'Developed',
@@ -50,51 +51,108 @@ const ACTION_VERBS = [
   'Launched',
 ];
 
-function generateId(): string {
-  return crypto.randomUUID();
-}
+const WEAK_OPENERS = new Set([
+  'i',
+  'we',
+  'my',
+  'responsible',
+  'responsibilities',
+  'duties',
+  'worked',
+  'helped',
+  'assisted',
+  'was',
+  'were',
+  'involved',
+  'tasked',
+]);
 
-function cleanText(text: string): string {
+export function cleanText(text: string): string {
   return text.replace(/\s+/g, ' ').trim();
 }
 
-function removeFillerWords(sentence: string): string {
+export function removeFillerWords(sentence: string): string {
   return sentence
     .split(/\s+/)
     .filter((word, index) => {
-      const lower = word.toLowerCase().replace(/[^a-z]/g, '');
       if (index === 0) return true;
+      const lower = word.toLowerCase().replace(/[^a-z]/g, '');
       return !FILLER_WORDS.has(lower);
     })
     .join(' ');
 }
 
-function shortenSentence(sentence: string, maxLength = 160): string {
+export function shortenSentence(sentence: string, maxLength = 200): string {
   const cleaned = removeFillerWords(sentence);
   if (cleaned.length <= maxLength) return cleaned;
   const truncated = cleaned.slice(0, maxLength);
   const lastSpace = truncated.lastIndexOf(' ');
-  return (lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated) + '…';
+  return `${lastSpace > 0 ? truncated.slice(0, lastSpace) : truncated}…`;
 }
 
-function ensureActionVerb(sentence: string): string {
-  const trimmed = sentence.trim();
-  if (!trimmed) return trimmed;
+function capitalizeFirst(text: string): string {
+  if (!text) return text;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
-  const firstWord = trimmed.split(/\s+/)[0]?.replace(/[^a-zA-Z]/g, '') ?? '';
-  const isVerb =
-    firstWord.length > 2 &&
-    (firstWord.endsWith('ed') ||
-      firstWord.endsWith('ing') ||
-      /^[A-Z][a-z]+/.test(firstWord));
+/**
+ * Bullets are never rewritten automatically — inventing a verb can change
+ * what the sentence claims. Instead the editor surfaces this hint so the
+ * user decides.
+ */
+export function needsStrongerOpener(bullet: string): boolean {
+  const firstWord =
+    bullet
+      .trim()
+      .split(/\s+/)[0]
+      ?.toLowerCase()
+      .replace(/[^a-z]/g, '') ?? '';
+  if (!firstWord) return false;
+  if (WEAK_OPENERS.has(firstWord)) return true;
+  return !ACTION_VERBS.some((verb) => verb.toLowerCase() === firstWord);
+}
 
-  if (isVerb && /^[A-Z]/.test(firstWord)) {
-    return trimmed;
-  }
+export function suggestActionVerbs(bullet: string, count = 4): string[] {
+  const text = bullet.toLowerCase();
 
-  const verb = ACTION_VERBS[Math.floor(Math.random() * ACTION_VERBS.length)];
-  const lower = trimmed.charAt(0).toLowerCase() + trimmed.slice(1);
-  return `${verb} ${lower}`;
+  const contextual: string[] = [];
+  const hint = (keywords: string[], verbs: string[]) => {
+    if (keywords.some((k) => text.includes(k))) contextual.push(...verbs);
+  };
+
+  hint(['team', 'people', 'mentor', 'report'], ['Led', 'Managed', 'Mentored']);
+  hint(
+    ['built', 'code', 'api', 'service', 'feature'],
+    ['Built', 'Developed', 'Shipped']
+  );
+  hint(['cost', 'time', 'latency', 'bug'], ['Reduced', 'Cut', 'Eliminated']);
+  hint(
+    ['revenue', 'growth', 'users', 'adoption'],
+    ['Increased', 'Grew', 'Drove']
+  );
+  hint(
+    ['process', 'workflow', 'manual'],
+    ['Streamlined', 'Automated', 'Standardized']
+  );
+  hint(
+    ['design', 'architecture', 'plan'],
+    ['Designed', 'Architected', 'Defined']
+  );
+
+  const merged = [...new Set([...contextual, ...ACTION_VERBS])];
+  return merged.slice(0, count);
+}
+
+/** Replaces the leading weak phrase with the chosen verb. */
+export function applyActionVerb(bullet: string, verb: string): string {
+  const trimmed = bullet.trim();
+  const withoutWeakOpener = trimmed.replace(
+    /^(i\s+|we\s+|my\s+|was\s+|were\s+)?(responsible for|responsibilities included|duties included|tasked with|involved in|helped(?:\s+to)?|assisted(?:\s+with|\s+in)?|worked on)\s+/i,
+    ''
+  );
+  const body = withoutWeakOpener === trimmed ? trimmed : withoutWeakOpener;
+  const lowered = body.charAt(0).toLowerCase() + body.slice(1);
+  return `${verb} ${lowered}`;
 }
 
 export function paragraphsToBullets(text: string): string[] {
@@ -113,11 +171,12 @@ export function paragraphsToBullets(text: string): string[] {
       .map(cleanText)
       .filter((s) => s.length > 10);
 
-    if (sentences.length === 0 && line.length > 10) {
-      bullets.push(ensureActionVerb(shortenSentence(line)));
+    if (sentences.length === 0) {
+      if (line.length > 10)
+        bullets.push(capitalizeFirst(shortenSentence(line)));
     } else {
       for (const sentence of sentences) {
-        bullets.push(ensureActionVerb(shortenSentence(sentence)));
+        bullets.push(capitalizeFirst(shortenSentence(sentence)));
       }
     }
   }
@@ -125,34 +184,151 @@ export function paragraphsToBullets(text: string): string[] {
   return deduplicateStrings(bullets);
 }
 
-function deduplicateStrings(items: string[]): string[] {
+export function deduplicateStrings(items: string[]): string[] {
   const seen = new Set<string>();
   return items.filter((item) => {
-    const key = item.toLowerCase();
-    if (seen.has(key)) return false;
+    const key = item.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-function normalizeExperienceKey(exp: {
-  title: string;
-  company: string;
-}): string {
-  return `${exp.title.toLowerCase()}|${exp.company.toLowerCase()}`;
+/* ------------------------------------------------------------------ *
+ * Experience de-duplication
+ *
+ * Capture merges several sources (Voyager payloads, embedded JSON, visible
+ * DOM), so the same job commonly arrives more than once — sometimes with a
+ * missing title, sometimes with a richer description. Entries are collapsed
+ * by company + dates and the most complete fields win.
+ * ------------------------------------------------------------------ */
+
+function normalizeKeyPart(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/\b(inc|llc|ltd|corp|corporation|company|co|gmbh|plc)\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+/** Dates arrive as "Jan 2020 - Present · 3 yrs"; only the range identifies the role. */
+function normalizeDuration(duration: string): string {
+  return normalizeKeyPart(duration.split('·')[0] ?? duration);
+}
+
+function scoreExperience(exp: ResumeExperience): number {
+  const bulletChars = exp.bullets.join(' ').length;
+  return (
+    (exp.title ? 100 : 0) +
+    (exp.company ? 40 : 0) +
+    (exp.duration ? 20 : 0) +
+    (exp.location ? 10 : 0) +
+    Math.min(bulletChars, 400) / 10
+  );
+}
+
+function mergeExperiencePair(
+  a: ResumeExperience,
+  b: ResumeExperience
+): ResumeExperience {
+  const [primary, secondary] =
+    scoreExperience(a) >= scoreExperience(b) ? [a, b] : [b, a];
+
+  return {
+    id: primary.id,
+    title: primary.title || secondary.title,
+    company: primary.company || secondary.company,
+    location: primary.location || secondary.location,
+    duration: primary.duration || secondary.duration,
+    bullets: deduplicateStrings([...primary.bullets, ...secondary.bullets]),
+  };
 }
 
 export function deduplicateExperience(
   experience: ResumeExperience[]
 ): ResumeExperience[] {
-  const seen = new Set<string>();
-  return experience.filter((exp) => {
-    const key = normalizeExperienceKey(exp);
-    if (seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
+  const result: ResumeExperience[] = [];
+
+  for (const exp of experience) {
+    const company = normalizeKeyPart(exp.company);
+    const title = normalizeKeyPart(exp.title);
+    const duration = normalizeDuration(exp.duration);
+
+    const matchIndex = result.findIndex((existing) => {
+      const existingCompany = normalizeKeyPart(existing.company);
+      const existingTitle = normalizeKeyPart(existing.title);
+      const existingDuration = normalizeDuration(existing.duration);
+
+      if (company && existingCompany && company !== existingCompany) {
+        return false;
+      }
+
+      // Same company and same title is always the same role.
+      if (title && existingTitle && title === existingTitle) return true;
+
+      // A titleless stub belongs to whichever role shares its date range.
+      if (!title || !existingTitle) {
+        return Boolean(duration) && duration === existingDuration;
+      }
+
+      // Different titles at one company are separate roles, even if the
+      // date ranges happen to overlap.
+      return false;
+    });
+
+    if (matchIndex === -1) {
+      result.push(exp);
+    } else {
+      result[matchIndex] = mergeExperiencePair(result[matchIndex], exp);
+    }
+  }
+
+  return result;
 }
+
+/* ------------------------------------------------------------------ *
+ * Contact details
+ * ------------------------------------------------------------------ */
+
+const EMAIL_RE = /[\w.+-]+@[\w-]+\.[\w.-]{2,}/;
+const PHONE_RE = /(\+?\d[\d\s().-]{7,}\d)/;
+const URL_RE =
+  /\b((?:https?:\/\/)?(?:[\w-]+\.)+[a-z]{2,}(?:\/[\w./?%&=+-]*)?)/gi;
+
+export function extractContactFromText(
+  text: string
+): Partial<Resume['contact']> {
+  const contact: Partial<Resume['contact']> = {};
+
+  const email = EMAIL_RE.exec(text);
+  if (email) contact.email = email[0];
+
+  // Email addresses are removed first: their domain would otherwise be read
+  // as a website and their digits as a phone number.
+  const withoutEmails = text.replace(new RegExp(EMAIL_RE.source, 'g'), ' ');
+
+  const phone = PHONE_RE.exec(withoutEmails);
+  if (phone) {
+    const digits = phone[0].replace(/\D/g, '');
+    if (digits.length >= 7 && digits.length <= 15) {
+      contact.phone = cleanText(phone[0]);
+    }
+  }
+
+  for (const match of withoutEmails.matchAll(URL_RE)) {
+    const url = match[1];
+    if (/linkedin\.com\/in\//i.test(url)) {
+      contact.linkedin ??= url.replace(/^https?:\/\//i, '');
+    } else if (!/linkedin\.com/i.test(url) && !contact.website) {
+      contact.website = url.replace(/^https?:\/\//i, '');
+    }
+  }
+
+  return contact;
+}
+
+/* ------------------------------------------------------------------ *
+ * LinkedIn profile -> resume
+ * ------------------------------------------------------------------ */
 
 export function normalizeLinkedInProfile(profile: LinkedInProfile): Resume {
   const experience: ResumeExperience[] = profile.experience
@@ -160,6 +336,7 @@ export function normalizeLinkedInProfile(profile: LinkedInProfile): Resume {
       id: generateId(),
       title: cleanText(exp.title),
       company: cleanText(exp.company),
+      location: '',
       duration: cleanText(exp.duration),
       bullets: paragraphsToBullets(exp.description),
     }))
@@ -174,22 +351,51 @@ export function normalizeLinkedInProfile(profile: LinkedInProfile): Resume {
     }))
     .filter((edu) => edu.school || edu.degree);
 
+  const about = cleanText(profile.about);
+  const contactFromAbout = extractContactFromText(about);
+
   return {
     name: cleanText(profile.name),
     headline: cleanText(profile.headline),
-    summary: shortenSentence(cleanText(profile.about), 500),
+    contact: {
+      email: contactFromAbout.email ?? '',
+      phone: contactFromAbout.phone ?? '',
+      location: cleanText(profile.location ?? ''),
+      website: contactFromAbout.website ?? '',
+      linkedin: contactFromAbout.linkedin ?? '',
+    },
+    summary: shortenSentence(about, 600),
     experience: deduplicateExperience(experience),
-    education,
+    education: deduplicateEducation(education),
     skills: deduplicateStrings(
       profile.skills.map(cleanText).filter(Boolean)
     ).slice(0, 30),
   };
 }
 
+export function deduplicateEducation(
+  education: ResumeEducation[]
+): ResumeEducation[] {
+  const seen = new Set<string>();
+  return education.filter((edu) => {
+    const key = `${normalizeKeyPart(edu.school)}|${normalizeKeyPart(edu.degree)}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 export function createEmptyResume(): Resume {
   return {
     name: '',
     headline: '',
+    contact: {
+      email: '',
+      phone: '',
+      location: '',
+      website: '',
+      linkedin: '',
+    },
     summary: '',
     experience: [],
     education: [],
@@ -197,21 +403,55 @@ export function createEmptyResume(): Resume {
   };
 }
 
+/* ------------------------------------------------------------------ *
+ * Pasted text parsing
+ * ------------------------------------------------------------------ */
+
+const SECTION_ALIASES: { section: string; patterns: RegExp[] }[] = [
+  { section: 'about', patterns: [/^(about|summary|profile|objective)$/i] },
+  {
+    section: 'experience',
+    patterns: [/^(experience|work experience|employment(?: history)?)$/i],
+  },
+  { section: 'education', patterns: [/^education$/i] },
+  {
+    section: 'skills',
+    patterns: [/^(skills|top skills|skills? (?:&|and) endorsements)$/i],
+  },
+];
+
+function matchSection(line: string): string | null {
+  const normalized = line.replace(/[:•]/g, '').trim();
+  for (const { section, patterns } of SECTION_ALIASES) {
+    if (patterns.some((pattern) => pattern.test(normalized))) return section;
+  }
+  return null;
+}
+
+const DURATION_LINE_RE =
+  /(\b(19|20)\d{2}\b.*\b(19|20)\d{2}\b)|(\b(19|20)\d{2}\b.*present)|^\s*\d+\s*(yr|year|mo|month)/i;
+
 export function parsePastedProfileText(text: string): LinkedInProfile {
-  const lines = text.split('\n').map((l) => l.trim()).filter(Boolean);
+  const lines = text
+    .split('\n')
+    .map((line) => line.trim())
+    .filter(Boolean);
 
   const profile: LinkedInProfile = {
-    name: lines[0] ?? '',
-    headline: lines[1] ?? '',
+    name: '',
+    headline: '',
     about: '',
     experience: [],
     education: [],
     skills: [],
   };
 
-  let currentSection = '';
+  const contact = extractContactFromText(text);
+
+  let currentSection = 'header';
   let currentExp: Partial<LinkedInExperience> | null = null;
   let descriptionLines: string[] = [];
+  const headerLines: string[] = [];
 
   const flushExperience = () => {
     if (currentExp && (currentExp.title || currentExp.company)) {
@@ -226,61 +466,44 @@ export function parsePastedProfileText(text: string): LinkedInProfile {
     descriptionLines = [];
   };
 
-  for (let i = 2; i < lines.length; i++) {
-    const line = lines[i];
-    const lower = line.toLowerCase();
-
-    if (
-      lower === 'about' ||
-      lower === 'summary' ||
-      lower.startsWith('about ')
-    ) {
+  for (const line of lines) {
+    const section = matchSection(line);
+    if (section) {
       flushExperience();
-      currentSection = 'about';
-      continue;
-    }
-    if (
-      lower === 'experience' ||
-      lower.startsWith('experience ')
-    ) {
-      flushExperience();
-      currentSection = 'experience';
-      continue;
-    }
-    if (
-      lower === 'education' ||
-      lower.startsWith('education ')
-    ) {
-      flushExperience();
-      currentSection = 'education';
-      continue;
-    }
-    if (
-      lower === 'skills' ||
-      lower.startsWith('skills ')
-    ) {
-      flushExperience();
-      currentSection = 'skills';
+      currentSection = section;
       continue;
     }
 
     switch (currentSection) {
+      case 'header':
+        headerLines.push(line);
+        break;
+
       case 'about':
         profile.about += (profile.about ? ' ' : '') + line;
         break;
+
       case 'experience':
         if (!currentExp) {
           currentExp = { title: line };
+        } else if (DURATION_LINE_RE.test(line) && !currentExp.duration) {
+          currentExp.duration = line;
         } else if (!currentExp.company) {
           currentExp.company = line;
-        } else if (!currentExp.duration) {
-          currentExp.duration = line;
         } else {
           descriptionLines.push(line);
         }
         break;
+
       case 'education': {
-        const parts = line.split('|').map((p) => p.trim());
+        const parts = line.split(/[|·]/).map((part) => part.trim());
+        if (DURATION_LINE_RE.test(line) && profile.education.length > 0) {
+          const last = profile.education[profile.education.length - 1];
+          if (!last.duration) {
+            last.duration = line;
+            break;
+          }
+        }
         profile.education.push({
           school: parts[0] ?? line,
           degree: parts[1] ?? '',
@@ -288,21 +511,48 @@ export function parsePastedProfileText(text: string): LinkedInProfile {
         });
         break;
       }
+
       case 'skills':
         profile.skills.push(
-          ...line.split(/[,;|]/).map((s) => s.trim()).filter(Boolean)
+          ...line
+            .split(/[,;|·]/)
+            .map((skill) => skill.trim())
+            .filter(Boolean)
         );
         break;
-      default:
-        if (!profile.about && i < 5) {
-          profile.about += (profile.about ? ' ' : '') + line;
-        }
     }
   }
 
   flushExperience();
+
+  const usableHeader = headerLines.filter(
+    (line) => !EMAIL_RE.test(line) && !URL_RE.test(line)
+  );
+  profile.name = usableHeader[0] ?? headerLines[0] ?? '';
+  profile.headline = usableHeader[1] ?? '';
+
+  if (contact.linkedin || contact.email || contact.phone) {
+    // Contact details live on the resume, not the LinkedIn profile shape, so
+    // they are appended to `about` and picked up during normalisation.
+    const details = [
+      contact.email,
+      contact.phone,
+      contact.linkedin,
+      contact.website,
+    ]
+      .filter(Boolean)
+      .join(' ');
+    if (details && !profile.about.includes(details)) {
+      profile.about = profile.about ? `${profile.about} ${details}` : details;
+    }
+  }
+
   return profile;
 }
+
+/* ------------------------------------------------------------------ *
+ * Manual editing helpers
+ * ------------------------------------------------------------------ */
 
 export function addExperience(resume: Resume): Resume {
   return {
@@ -313,6 +563,7 @@ export function addExperience(resume: Resume): Resume {
         id: generateId(),
         title: '',
         company: '',
+        location: '',
         duration: '',
         bullets: [''],
       },
@@ -325,12 +576,7 @@ export function addEducation(resume: Resume): Resume {
     ...resume,
     education: [
       ...resume.education,
-      {
-        id: generateId(),
-        school: '',
-        degree: '',
-        duration: '',
-      },
+      { id: generateId(), school: '', degree: '', duration: '' },
     ],
   };
 }
@@ -340,6 +586,16 @@ export function reorderExperience(
   fromIndex: number,
   toIndex: number
 ): Resume {
+  if (
+    fromIndex === toIndex ||
+    fromIndex < 0 ||
+    toIndex < 0 ||
+    fromIndex >= resume.experience.length ||
+    toIndex >= resume.experience.length
+  ) {
+    return resume;
+  }
+
   const experience = [...resume.experience];
   const [moved] = experience.splice(fromIndex, 1);
   if (!moved) return resume;

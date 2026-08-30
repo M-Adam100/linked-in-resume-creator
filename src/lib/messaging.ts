@@ -1,12 +1,24 @@
-import type { ExtensionMessage, LinkedInProfile } from './types';
+import type { CaptureResponse, LinkedInProfile } from './types';
 
-export function captureLinkedInProfile(): Promise<LinkedInProfile> {
+export interface CaptureResult {
+  profile: LinkedInProfile;
+  source?: CaptureResponse['source'];
+}
+
+export function captureLinkedInProfile(
+  advancedCapture: boolean
+): Promise<CaptureResult> {
   return new Promise((resolve, reject) => {
     chrome.runtime.sendMessage(
-      { action: 'CAPTURE_PROFILE' } satisfies ExtensionMessage,
-      (response) => {
+      { action: 'CAPTURE_PROFILE', advancedCapture },
+      (response: CaptureResponse | undefined) => {
         if (chrome.runtime.lastError) {
-          reject(new Error(chrome.runtime.lastError.message));
+          reject(
+            new Error(
+              chrome.runtime.lastError.message ??
+                'The extension background worker is unavailable. Reload the extension and try again.'
+            )
+          );
           return;
         }
         if (response?.error) {
@@ -17,8 +29,18 @@ export function captureLinkedInProfile(): Promise<LinkedInProfile> {
           reject(new Error('No profile data received.'));
           return;
         }
-        resolve(response.data as LinkedInProfile);
+        resolve({ profile: response.data, source: response.source });
       }
     );
+  });
+}
+
+export function openEditorTab(): Promise<void> {
+  return new Promise((resolve) => {
+    chrome.runtime.sendMessage({ action: 'OPEN_EDITOR' }, () => {
+      // lastError is read to stop Chrome logging an unchecked error.
+      void chrome.runtime.lastError;
+      resolve();
+    });
   });
 }

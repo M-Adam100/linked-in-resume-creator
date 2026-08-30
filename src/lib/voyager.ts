@@ -1,3 +1,4 @@
+import { logger } from './logger';
 import type {
   LinkedInEducation,
   LinkedInExperience,
@@ -27,7 +28,9 @@ function getCsrfToken(): string | null {
   return jsession.replace(/"/g, '');
 }
 
-export function getProfileVanityFromUrl(url = window.location.href): string | null {
+export function getProfileVanityFromUrl(
+  url = window.location.href
+): string | null {
   const match = url.match(/linkedin\.com\/in\/([^/?#]+)/i);
   return match?.[1] ?? null;
 }
@@ -43,7 +46,7 @@ function voyagerHeaders(): HeadersInit | null {
   };
 }
 
-async function voyagerGet(path: string): Promise<unknown | null> {
+async function voyagerGet(path: string): Promise<unknown> {
   const headers = voyagerHeaders();
   if (!headers) return null;
 
@@ -180,8 +183,18 @@ function formatPartialDate(date: unknown): string {
   if (typeof year !== 'number') return '';
   if (typeof month === 'number') {
     const monthNames = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      'Jan',
+      'Feb',
+      'Mar',
+      'Apr',
+      'May',
+      'Jun',
+      'Jul',
+      'Aug',
+      'Sep',
+      'Oct',
+      'Nov',
+      'Dec',
     ];
     return `${monthNames[month - 1] ?? month} ${year}`;
   }
@@ -241,71 +254,90 @@ function mergeExperienceEntry(
 }
 
 function normalizeKeyPart(value: string): string {
-  return value.toLowerCase().replace(/\s+/g, ' ').trim();
+  return value
+    .toLowerCase()
+    .replace(/\b(inc|llc|ltd|corp|corporation|company|co|gmbh|plc)\b/g, '')
+    .replace(/[^a-z0-9]/g, '');
 }
 
-function experienceMatchKey(exp: LinkedInExperience): string {
-  return [
-    normalizeKeyPart(exp.company),
-    normalizeKeyPart(exp.duration),
-    normalizeKeyPart(exp.title),
-  ].join('|');
+/** "Jan 2020 - Present · 3 yrs 2 mos" — only the range identifies the role. */
+function normalizeDurationKey(duration: string): string {
+  return normalizeKeyPart(duration.split('·')[0] ?? duration);
 }
 
-function experienceLooseKey(exp: LinkedInExperience): string {
-  return `${normalizeKeyPart(exp.company)}|${normalizeKeyPart(exp.duration)}`;
+function isJunkExperience(exp: LinkedInExperience): boolean {
+  if (!exp.title && !exp.company) return true;
+  const combined = `${exp.title} ${exp.company}`.trim();
+  return /^(full-time|part-time|contract|internship|freelance|self-employed|seasonal|apprenticeship)$/i.test(
+    combined
+  );
 }
 
-function dedupeExperiences(
+/**
+ * Capture pulls the same role from several payloads plus the visible page.
+ * Entries are collapsed into a single list rather than a keyed map, because a
+ * map keyed on both an exact and a loose key leaves stale entries behind when
+ * two records merge — that was the source of duplicated roles.
+ */
+export function dedupeExperiences(
   experiences: LinkedInExperience[]
 ): LinkedInExperience[] {
-  const byKey = new Map<string, LinkedInExperience>();
+  const result: LinkedInExperience[] = [];
 
   for (const exp of experiences) {
-    if (!exp.title && !exp.company) continue;
+    if (isJunkExperience(exp)) continue;
 
-    const key = experienceMatchKey(exp);
-    const looseKey = experienceLooseKey(exp);
-    const existing = byKey.get(key) ?? byKey.get(looseKey);
+    const company = normalizeKeyPart(exp.company);
+    const title = normalizeKeyPart(exp.title);
+    const duration = normalizeDurationKey(exp.duration);
 
-    if (!existing) {
-      byKey.set(key, exp);
-      if (!byKey.has(looseKey)) byKey.set(looseKey, exp);
-      continue;
+    const matchIndex = result.findIndex((existing) => {
+      const existingCompany = normalizeKeyPart(existing.company);
+      const existingTitle = normalizeKeyPart(existing.title);
+      const existingDuration = normalizeDurationKey(existing.duration);
+
+      if (company && existingCompany && company !== existingCompany) {
+        return false;
+      }
+
+      if (title && existingTitle) {
+        // Same company and title is the same role; a promotion at the same
+        // company keeps its own entry.
+        return title === existingTitle;
+      }
+
+      // One side has no title, so the date range decides.
+      return Boolean(duration) && duration === existingDuration;
+    });
+
+    if (matchIndex === -1) {
+      result.push(exp);
+    } else {
+      result[matchIndex] = mergeExperienceEntry(result[matchIndex], exp);
     }
-
-    const merged = mergeExperienceEntry(existing, exp);
-    byKey.set(key, merged);
-    byKey.set(looseKey, merged);
-  }
-
-  const seen = new Set<LinkedInExperience>();
-  const result: LinkedInExperience[] = [];
-  for (const exp of byKey.values()) {
-    if (seen.has(exp)) continue;
-    seen.add(exp);
-    result.push(exp);
   }
 
   return result;
 }
 
-function dedupeEducation(education: LinkedInEducation[]): LinkedInEducation[] {
+export function dedupeEducation(
+  education: LinkedInEducation[]
+): LinkedInEducation[] {
   const seen = new Set<string>();
   return education.filter((edu) => {
-    const key = `${edu.school}|${edu.degree}`.toLowerCase();
     if (!edu.school && !edu.degree) return false;
+    const key = `${normalizeKeyPart(edu.school)}|${normalizeKeyPart(edu.degree)}`;
     if (seen.has(key)) return false;
     seen.add(key);
     return true;
   });
 }
 
-function dedupeSkills(skills: string[]): string[] {
+export function dedupeSkills(skills: string[]): string[] {
   const seen = new Set<string>();
   return skills.filter((skill) => {
-    const key = skill.toLowerCase();
-    if (seen.has(key)) return false;
+    const key = skill.toLowerCase().trim();
+    if (!key || seen.has(key)) return false;
     seen.add(key);
     return true;
   });
@@ -318,7 +350,11 @@ export function mergeProfiles(
   return {
     name: primary.name || secondary.name,
     headline: primary.headline || secondary.headline,
-    about: primary.about || secondary.about,
+    about:
+      (primary.about?.length ?? 0) >= (secondary.about?.length ?? 0)
+        ? primary.about
+        : secondary.about,
+    location: primary.location || secondary.location,
     experience: dedupeExperiences([
       ...primary.experience,
       ...secondary.experience,
@@ -435,8 +471,12 @@ function resolveGroupPositions(
   for (const entity of entityMap.values()) {
     const type = getType(entity);
     if (!type.includes('Position') || type.includes('PositionGroup')) continue;
-    const entityCompany = companyNameFrom(entity) || companyNameFrom(entity, true);
-    if (entityCompany.toLowerCase() === groupCompany.toLowerCase() && titleFrom(entity)) {
+    const entityCompany =
+      companyNameFrom(entity) || companyNameFrom(entity, true);
+    if (
+      entityCompany.toLowerCase() === groupCompany.toLowerCase() &&
+      titleFrom(entity)
+    ) {
       matches.push(entity);
     }
   }
@@ -498,8 +538,12 @@ function parseExperience(
 ): LinkedInExperience[] {
   const experiences: LinkedInExperience[] = [];
 
-  const positionGroupView = root?.positionGroupView as VoyagerEntity | undefined;
-  if (positionGroupView?.elements && Array.isArray(positionGroupView.elements)) {
+  const positionGroupView = root?.positionGroupView as
+    VoyagerEntity | undefined;
+  if (
+    positionGroupView?.elements &&
+    Array.isArray(positionGroupView.elements)
+  ) {
     experiences.push(
       ...parseExperienceFromGroups(
         positionGroupView.elements as VoyagerEntity[],
@@ -673,8 +717,7 @@ function parseFromIncludedEntities(
       const last = textValue(entity.lastName);
       name = name || [first, last].filter(Boolean).join(' ');
       headline = headline || textValue(entity.headline);
-      about =
-        about || textValue(entity.summary) || textValue(entity.about);
+      about = about || textValue(entity.summary) || textValue(entity.about);
     }
   }
 
@@ -697,7 +740,7 @@ function parseVoyagerPayload(payload: unknown): LinkedInProfile | null {
   const profile = findProfileEntity(payload, entityMap);
   const includedData = parseFromIncludedEntities(entityMap);
 
-  const profileEntity = profile ?? ({} as VoyagerEntity);
+  const profileEntity = profile ?? {};
   const firstName = textValue(profileEntity.firstName);
   const lastName = textValue(profileEntity.lastName);
   const name =
@@ -705,8 +748,7 @@ function parseVoyagerPayload(payload: unknown): LinkedInProfile | null {
 
   const result: LinkedInProfile = {
     name,
-    headline:
-      textValue(profileEntity.headline) || includedData.headline || '',
+    headline: textValue(profileEntity.headline) || includedData.headline || '',
     about:
       textValue(profileEntity.summary) ||
       textValue(profileEntity.about) ||
@@ -749,7 +791,7 @@ function parseVoyagerPayload(payload: unknown): LinkedInProfile | null {
 async function fetchDashProfile(
   vanityName: string,
   decorationId: string
-): Promise<unknown | null> {
+): Promise<unknown> {
   const params = new URLSearchParams({
     q: 'memberIdentity',
     memberIdentity: vanityName,
@@ -759,13 +801,11 @@ async function fetchDashProfile(
   return voyagerGet(`/identity/dash/profiles?${params.toString()}`);
 }
 
-async function fetchLegacyProfileView(
-  identifier: string
-): Promise<unknown | null> {
+async function fetchLegacyProfileView(identifier: string): Promise<unknown> {
   return voyagerGet(`/identity/profiles/${identifier}/profileView`);
 }
 
-async function fetchSkillCategory(profileId: string): Promise<unknown | null> {
+async function fetchSkillCategory(profileId: string): Promise<unknown> {
   return voyagerGet(
     `/identity/profiles/${profileId}/skillCategory?includeHiddenEndorsers=true`
   );
@@ -781,13 +821,17 @@ function absorbPayload(
 }
 
 export async function extractViaVoyager(): Promise<LinkedInProfile | null> {
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let best: any = null;
-  let profileId: string | null = null;
+  // Held in an object rather than local `let` bindings: the accumulator is
+  // written from a closure, and TypeScript would otherwise keep narrowing it
+  // to the initial `null`.
+  const acc: { profile: LinkedInProfile | null; profileId: string | null } = {
+    profile: null,
+    profileId: null,
+  };
 
   const absorb = (payload: unknown) => {
-    profileId = profileId || extractProfileId(payload);
-    best = absorbPayload(best, payload);
+    acc.profileId = acc.profileId ?? extractProfileId(payload);
+    acc.profile = absorbPayload(acc.profile, payload);
   };
 
   for (const payload of extractEmbeddedVoyagerPayloads()) {
@@ -805,12 +849,8 @@ export async function extractViaVoyager(): Promise<LinkedInProfile | null> {
   ];
 
   const sortedRequests = [
-    ...pageRequests.filter((r) =>
-      priorityPatterns.some((p) => p.test(r))
-    ),
-    ...pageRequests.filter(
-      (r) => !priorityPatterns.some((p) => p.test(r))
-    ),
+    ...pageRequests.filter((r) => priorityPatterns.some((p) => p.test(r))),
+    ...pageRequests.filter((r) => !priorityPatterns.some((p) => p.test(r))),
   ];
 
   for (const request of sortedRequests.slice(0, 12)) {
@@ -838,29 +878,27 @@ export async function extractViaVoyager(): Promise<LinkedInProfile | null> {
     }
 
     try {
-      const legacy = await fetchLegacyProfileView(vanityName);
-      absorb(legacy);
-      profileId = profileId || extractProfileId(legacy);
+      absorb(await fetchLegacyProfileView(vanityName));
     } catch {
       // legacy endpoint unavailable
     }
   }
 
-  if (profileId) {
+  if (acc.profileId) {
     try {
-      absorb(await fetchSkillCategory(profileId));
+      absorb(await fetchSkillCategory(acc.profileId));
     } catch {
       // skills endpoint unavailable
     }
   }
 
-  if (best) {
-    console.info('[ResumeForge] Voyager capture:', {
-      experience: best.experience.length,
-      education: best.education?.length ?? 0,
-      skills: best.skills?.length ?? 0,
+  if (acc.profile) {
+    logger.debug('Advanced capture result', {
+      experience: acc.profile.experience.length,
+      education: acc.profile.education.length,
+      skills: acc.profile.skills.length,
     });
   }
 
-  return best as LinkedInProfile | null;
+  return acc.profile;
 }

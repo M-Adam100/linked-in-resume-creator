@@ -1,4 +1,5 @@
-import type { LinkedInProfile } from '../lib/types';
+import { logger } from '../lib/logger';
+import type { CaptureResponse, LinkedInProfile } from '../lib/types';
 import { extractViaVoyager, mergeProfiles } from '../lib/voyager';
 import { extractProfileFromDom } from './dom';
 
@@ -12,44 +13,65 @@ function isProfileEmpty(profile: LinkedInProfile): boolean {
   );
 }
 
-async function extractProfile(): Promise<LinkedInProfile> {
-  let profile: LinkedInProfile | null = null;
-
-  try {
-    profile = await extractViaVoyager();
-  } catch (err) {
-    console.warn('[ResumeForge] Voyager extraction failed, using DOM fallback', err);
-  }
-
+async function extractProfile(advancedCapture: boolean): Promise<{
+  profile: LinkedInProfile;
+  source: CaptureResponse['source'];
+}> {
   const domProfile = extractProfileFromDom();
 
-  if (profile && !isProfileEmpty(profile)) {
-    return mergeProfiles(domProfile, profile);
+  if (!advancedCapture) {
+    return { profile: domProfile, source: 'dom' };
   }
 
-  console.info('[ResumeForge] Profile captured via DOM fallback');
-  return domProfile;
+  let voyagerProfile: LinkedInProfile | null = null;
+
+  try {
+    voyagerProfile = await extractViaVoyager();
+  } catch (error) {
+    logger.warn('Advanced capture failed, using visible page content', error);
+  }
+
+  if (voyagerProfile && !isProfileEmpty(voyagerProfile)) {
+    // The visible page is authoritative for titles the user can see; the API
+    // response is richer for descriptions and older roles.
+    return {
+      profile: mergeProfiles(domProfile, voyagerProfile),
+      source: isProfileEmpty(domProfile) ? 'voyager' : 'mixed',
+    };
+  }
+
+  return { profile: domProfile, source: 'dom' };
 }
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message.action === 'EXTRACT_PROFILE') {
-    void extractProfile()
-      .then((data) => {
-        if (isProfileEmpty(data)) {
+/**
+ * The script is injected on demand and may already be present from an earlier
+ * capture, so the listener registers only once per page.
+ */
+const GUARD = '__resumeforgeContentReady';
+
+if (!(window as unknown as Record<string, boolean>)[GUARD]) {
+  (window as unknown as Record<string, boolean>)[GUARD] = true;
+
+  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.action !== 'EXTRACT_PROFILE') return false;
+
+    void extractProfile(message.advancedCapture !== false)
+      .then(({ profile, source }) => {
+        if (isProfileEmpty(profile)) {
           sendResponse({
             error:
-              'Could not find profile data. Make sure you are on a LinkedIn profile page.',
-          });
+              'Could not read this profile. Scroll down to load the Experience section, then capture again.',
+          } satisfies CaptureResponse);
           return;
         }
-        sendResponse({ data });
+        sendResponse({ data: profile, source } satisfies CaptureResponse);
       })
-      .catch((err) => {
+      .catch((error: unknown) => {
         sendResponse({
-          error: err instanceof Error ? err.message : 'Extraction failed.',
-        });
+          error: error instanceof Error ? error.message : 'Extraction failed.',
+        } satisfies CaptureResponse);
       });
+
     return true;
-  }
-  return false;
-});
+  });
+}

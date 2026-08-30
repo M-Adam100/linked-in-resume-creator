@@ -1,4 +1,8 @@
-import type { LinkedInEducation, LinkedInExperience, LinkedInProfile } from '../lib/types';
+import type {
+  LinkedInEducation,
+  LinkedInExperience,
+  LinkedInProfile,
+} from '../lib/types';
 
 function getText(el: Element | null | undefined): string {
   if (!el) return '';
@@ -65,6 +69,20 @@ function extractHeadline(): string {
   return text;
 }
 
+function extractLocation(): string {
+  const el = queryFirst([
+    '.pv-text-details__left-panel.mt2 span.text-body-small',
+    '.pv-text-details__left-panel + div span.text-body-small',
+    'span.text-body-small.inline.t-black--light.break-words',
+    '.ph5 span.text-body-small.inline.t-black--light',
+  ]);
+
+  const text = getText(el);
+  // The same class is used for the "500+ connections" counter.
+  if (/connection|follower/i.test(text)) return '';
+  return text;
+}
+
 function extractAbout(): string {
   const section = findSectionByHeading(['about', 'summary']);
   if (!section) return '';
@@ -107,9 +125,7 @@ function extractExperienceFallback(section: Element): LinkedInExperience[] {
   const blocks = section.querySelectorAll('.pvs-entity, .pv-entity');
 
   for (const block of blocks) {
-    const texts = Array.from(
-      block.querySelectorAll('span[aria-hidden="true"]')
-    )
+    const texts = Array.from(block.querySelectorAll('span[aria-hidden="true"]'))
       .map((s) => getText(s))
       .filter(Boolean);
 
@@ -274,9 +290,7 @@ function extractEducation(): LinkedInEducation[] {
   );
 
   for (const item of items) {
-    const texts = Array.from(
-      item.querySelectorAll('span[aria-hidden="true"]')
-    )
+    const texts = Array.from(item.querySelectorAll('span[aria-hidden="true"]'))
       .map((s) => getText(s))
       .filter(Boolean);
 
@@ -321,6 +335,7 @@ export function extractProfileFromDom(): LinkedInProfile {
     name: extractName(),
     headline: extractHeadline(),
     about: extractAbout(),
+    location: extractLocation(),
     experience: extractExperience(),
     education: extractEducation(),
     skills: extractSkills(),
